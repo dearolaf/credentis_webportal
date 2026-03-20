@@ -916,7 +916,7 @@ function InvitePQQModal({ inviterRole, projects, partners, templates, onClose, o
   );
 }
 
-function PQQSubmissionModal({ mode = 'submit', submissionId = null, invitationId, initialAnswers = {}, onClose, onSubmitted }) {
+function PQQSubmissionModal({ mode = 'submit', submissionId = null, invitationId, initialAnswers = null, onClose, onSubmitted }) {
   const [invitation, setInvitation] = useState(null);
   const [template, setTemplate] = useState(null);
   const [sections, setSections] = useState([]);
@@ -937,7 +937,11 @@ function PQQSubmissionModal({ mode = 'submit', submissionId = null, invitationId
       }
       setLoading(true);
       setError('');
-      setAnswers(typeof initialAnswers === 'object' && initialAnswers ? initialAnswers : {});
+      if (mode === 'renew') {
+        setAnswers(typeof initialAnswers === 'object' && initialAnswers ? initialAnswers : {});
+      } else {
+        setAnswers({});
+      }
       const invRes = await api.get(`/onboarding/invitations/${invitationId}`);
       if (!invRes.success || !invRes.data?.pqq_template_id) {
         setError(invRes.message || 'Unable to load invitation');
@@ -957,7 +961,7 @@ function PQQSubmissionModal({ mode = 'submit', submissionId = null, invitationId
       setLoading(false);
     };
     load();
-  }, [invitationId, mode, submissionId, initialAnswers]);
+  }, [invitationId, mode, submissionId]);
 
   const setAnswer = (questionId, value) => setAnswers(prev => ({ ...prev, [questionId]: value }));
 
