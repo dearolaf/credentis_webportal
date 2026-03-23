@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle, XCircle, Shield, UserCheck, Eye, FileText, Send, X, BadgeCheck, Bell, ClipboardList } from 'lucide-react';
 import api from '../../services/api';
+import DemoResetButton from '../../components/DemoResetButton';
 
 function DARRequirementRow({ requirement: r, workerId, workerName, credentials, onIssue, onSatisfy }) {
   const [selectedCred, setSelectedCred] = React.useState('');
@@ -370,9 +371,12 @@ export default function SubWorkerManagement() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Professional Management</h2>
-        <p className="text-gray-500 text-sm mt-1">Manage, verify, and endorse professionals on your delegated projects</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Professional Management</h2>
+          <p className="text-gray-500 text-sm mt-1">Manage, verify, and endorse professionals on your delegated projects</p>
+        </div>
+        <DemoResetButton />
       </div>
 
       {/* Project filter */}

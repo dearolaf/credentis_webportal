@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { FolderKanban, Plus, MapPin, Calendar, Users, ChevronDown, ChevronRight, Shield, X, CheckCircle, XCircle, UserPlus, Send, Eye, ArrowRight, Trash2, FileText } from 'lucide-react';
 import api from '../../services/api';
+import DemoResetButton from '../../components/DemoResetButton';
 
 export default function ProjectManagement() {
   const [projects, setProjects] = useState([]);
@@ -95,12 +96,15 @@ export default function ProjectManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Verified Projects</h2>
           <p className="text-gray-500 text-sm mt-1">Create, manage, and delegate projects</p>
         </div>
-        <button onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Create Project</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <DemoResetButton />
+          <button onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Create Project</button>
+        </div>
       </div>
 
       <div className="space-y-3">

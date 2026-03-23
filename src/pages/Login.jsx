@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, AlertCircle } from 'lucide-react';
+import { Mail, Lock, AlertCircle, RotateCcw } from 'lucide-react';
 
 const demoAccounts = [
   { email: 'client@hyperdc.co', role: 'Client', company: 'HyperDC Co' },
@@ -14,15 +14,67 @@ export default function Login() {
   const [email, setEmail] = useState('client@energycorp.ie');
   const [password, setPassword] = useState('Password123!');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setInfo('');
     const result = await login(email, password);
     if (!result.success) setError(result.message);
     setLoading(false);
+  };
+
+  const handleResetDemo = async () => {
+    if (!email || !password) {
+      setError('Enter a demo email and password first.');
+      return;
+    }
+    const confirmReset = window.confirm(
+      'Reset the full PoC database to seed state?\n\nThis will recreate all demo data and invalidate existing sessions.'
+    );
+    if (!confirmReset) return;
+
+    setResetting(true);
+    setError('');
+    setInfo('');
+    try {
+      const loginRes = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const loginJson = await loginRes.json();
+      if (!loginJson.success || !loginJson?.data?.token) {
+        setError(loginJson.message || 'Login failed. Use an allowed demo account to reset.');
+        setResetting(false);
+        return;
+      }
+
+      const resetRes = await fetch('/api/demo/reset-database', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${loginJson.data.token}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const resetJson = await resetRes.json();
+      if (!resetJson.success) {
+        setError(resetJson.message || 'Demo reset failed.');
+        setResetting(false);
+        return;
+      }
+
+      setInfo('Demo database reset successfully. You can now sign in.');
+      setPassword('Password123!');
+    } catch (err) {
+      setError('Network error while resetting demo data.');
+    }
+    setResetting(false);
   };
 
   return (
@@ -45,6 +97,12 @@ export default function Login() {
               {error}
             </div>
           )}
+          {info && (
+            <div className="flex items-center gap-2 bg-green-50 text-green-700 px-4 py-3 rounded-xl mb-4 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {info}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -63,6 +121,15 @@ export default function Login() {
             </div>
             <button type="submit" disabled={loading} className="w-full btn-primary disabled:opacity-60">
               {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+            <button
+              type="button"
+              onClick={handleResetDemo}
+              disabled={resetting || loading}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border border-orange-200 bg-orange-50 text-orange-900 hover:bg-orange-100 disabled:opacity-60"
+            >
+              <RotateCcw className={`w-4 h-4 ${resetting ? 'animate-spin' : ''}`} />
+              {resetting ? 'Resetting demo...' : 'Reset demo database'}
             </button>
           </form>
 

@@ -33,6 +33,7 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     api.setToken(null);
+    localStorage.removeItem('credentis_token');
     setUser(null);
   };
 
