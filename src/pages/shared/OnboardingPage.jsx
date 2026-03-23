@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { UserPlus, Building2, CheckCircle, XCircle, Clock, X, Send, Upload, Trash2, RotateCcw } from 'lucide-react';
+import { UserPlus, Building2, CheckCircle, XCircle, Clock, X, Send, Upload, Trash2, RotateCcw, Eye } from 'lucide-react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
@@ -39,6 +39,10 @@ export default function OnboardingPage({ portalRole } = {}) {
   const [deletingTemplateId, setDeletingTemplateId] = useState('');
   const [templateActionError, setTemplateActionError] = useState('');
   const [templateActionSuccess, setTemplateActionSuccess] = useState('');
+  const [showPqqDetailModal, setShowPqqDetailModal] = useState(false);
+  const [pqqDetailLoading, setPqqDetailLoading] = useState(false);
+  const [pqqDetailError, setPqqDetailError] = useState('');
+  const [pqqDetailPayload, setPqqDetailPayload] = useState(null);
 
   const isClient = user?.role === 'client';
   const isAdmin = user?.role === 'admin';
@@ -101,6 +105,26 @@ export default function OnboardingPage({ portalRole } = {}) {
   const reviewPQQ = async (id, status) => {
     await api.put(`/onboarding/pqq/${id}/review`, { status, review_notes: `${status} during PoC demo` });
     loadData();
+  };
+
+  const openPqqDetail = async (id) => {
+    setShowPqqDetailModal(true);
+    setPqqDetailLoading(true);
+    setPqqDetailError('');
+    setPqqDetailPayload(null);
+    const res = await api.get(`/onboarding/pqq/${id}`);
+    setPqqDetailLoading(false);
+    if (!res.success) {
+      setPqqDetailError(res.message || 'Failed to load PQQ details');
+      return;
+    }
+    setPqqDetailPayload(res.data);
+  };
+
+  const closePqqDetail = () => {
+    setShowPqqDetailModal(false);
+    setPqqDetailPayload(null);
+    setPqqDetailError('');
   };
 
   const openImportModal = (defaults = { templateId: '', templateName: '' }) => {
@@ -510,7 +534,15 @@ export default function OnboardingPage({ portalRole } = {}) {
                     <p className="text-sm text-gray-500">{pqq.first_name} {pqq.last_name}</p>
                     <p className="text-xs text-gray-500 mt-1">Overall: <span className="font-medium">{pqq.overall_status || 'n/a'}</span> | Score: <span className="font-medium">{pqq.total_score ?? 0}</span></p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => openPqqDetail(pqq.id)}
+                      className="btn-secondary flex items-center gap-2 text-sm py-2 px-3"
+                    >
+                      <Eye className="w-4 h-4" />
+                      View details
+                    </button>
                     <span className={
                       pqq.status === 'approved' ? 'badge-green' :
                       pqq.status === 'under_review' ? 'badge-amber' :
@@ -742,6 +774,15 @@ export default function OnboardingPage({ portalRole } = {}) {
           }}
         />
       )}
+
+      {showPqqDetailModal && (
+        <PQQDetailReadOnlyModal
+          loading={pqqDetailLoading}
+          error={pqqDetailError}
+          payload={pqqDetailPayload}
+          onClose={closePqqDetail}
+        />
+      )}
     </div>
   );
 }
@@ -910,6 +951,276 @@ function InvitePQQModal({ inviterRole, projects, partners, templates, onClose, o
             </button>
           </div>
         </form>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function renderPqqAnswerReadOnly(q, v) {
+  if (v === undefined || v === null || v === '') {
+    return <span className="text-gray-400 italic">—</span>;
+  }
+  const type = String(q?.question_type || '').toLowerCase();
+  if (type === 'yes_no') {
+    return <span>{v === true ? 'Yes' : v === false ? 'No' : String(v)}</span>;
+  }
+  if (type === 'yes_no_text') {
+    return <span className="whitespace-pre-wrap">{String(v)}</span>;
+  }
+  if (type === 'insurance_input' && typeof v === 'object' && v) {
+    return (
+      <div className="text-sm text-gray-800 space-y-1">
+        <p><span className="font-medium text-gray-600">Policy:</span> {v.policy_number || '—'}</p>
+        <p><span className="font-medium text-gray-600">Coverage:</span> {v.coverage || '—'}</p>
+        <p><span className="font-medium text-gray-600">Expiry:</span> {v.expiry_date || '—'}</p>
+      </div>
+    );
+  }
+  if (type.startsWith('file_upload')) {
+    const needsExpiry = q.question_type === 'file_upload_cert' || /(cert|certificate|policy|insurance|iso)/i.test(q.question_text || '');
+    if (needsExpiry && typeof v === 'object' && v) {
+      return (
+        <div className="text-sm text-gray-800 space-y-1">
+          <p><span className="font-medium text-gray-600">File:</span> {v.file_ref || '—'}</p>
+          {v.certificate_number != null && v.certificate_number !== '' && (
+            <p><span className="font-medium text-gray-600">Certificate #:</span> {v.certificate_number}</p>
+          )}
+          <p><span className="font-medium text-gray-600">Expiry:</span> {v.expiry_date || '—'}</p>
+        </div>
+      );
+    }
+    return <span className="whitespace-pre-wrap break-all">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>;
+  }
+  if (typeof v === 'object') {
+    return <pre className="text-xs bg-gray-50 p-2 rounded-lg overflow-x-auto border border-gray-100">{JSON.stringify(v, null, 2)}</pre>;
+  }
+  return <span className="whitespace-pre-wrap">{String(v)}</span>;
+}
+
+function PqqExpiryAlertInline({ alert }) {
+  if (!alert) return null;
+  const level = alert.level;
+  const badgeClass =
+    level === 'red' ? 'badge-red' :
+    level === 'amber' ? 'badge-amber' :
+    level === 'invalid_date' ? 'badge-gray' : 'badge-green';
+  const levelLabel =
+    level === 'red' ? 'Red (critical)' :
+    level === 'amber' ? 'Amber (warning)' :
+    level === 'invalid_date' ? 'Invalid date' : 'OK';
+
+  return (
+    <div className="mt-2 rounded-lg border border-gray-200 bg-slate-50 p-2.5 text-xs text-gray-700 space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium text-gray-600">Expiry evaluation</span>
+        <span className={badgeClass}>{levelLabel}</span>
+        {alert.item_category && (
+          <span className="text-gray-500">[{alert.item_category}]</span>
+        )}
+      </div>
+      <p>
+        <span className="font-medium text-gray-600">Expiry date:</span>{' '}
+        {alert.expiry_date ?? '—'}
+        <span className="mx-2 text-gray-300">|</span>
+        <span className="font-medium text-gray-600">Days to expiry:</span>{' '}
+        {alert.days_to_expiry == null ? 'n/a' : `${alert.days_to_expiry} day(s)`}
+      </p>
+      {alert.thresholds && (
+        <p className="text-gray-500">
+          Rule: {alert.thresholds.source} — Red ≤ {alert.thresholds.red_days ?? '—'} days, Amber ≤ {alert.thresholds.amber_days ?? '—'} days
+        </p>
+      )}
+      {alert.escalation_logic && (
+        <p className="text-gray-500"><span className="font-medium text-gray-600">Escalation:</span> {alert.escalation_logic}</p>
+      )}
+      {alert.suspension_on_expiry && level === 'red' && (
+        <p className="text-red-700 font-medium">Suspension may apply for this category when in the red zone.</p>
+      )}
+    </div>
+  );
+}
+
+function PQQDetailReadOnlyModal({ loading, error, payload, onClose }) {
+  const submission = payload?.submission;
+  const answers = payload?.answers && typeof payload.answers === 'object' ? payload.answers : {};
+  const template = payload?.template;
+  const sections = Array.isArray(payload?.sections) ? payload.sections : [];
+  const questions = Array.isArray(payload?.questions) ? payload.questions : [];
+
+  const [expiryData, setExpiryData] = useState(null);
+  const [expiryLoading, setExpiryLoading] = useState(false);
+  const [expiryError, setExpiryError] = useState('');
+
+  const orphanAnswers = useMemo(() => {
+    if (!questions.length) return Object.entries(answers);
+    const ids = new Set(questions.map((q) => q.question_id));
+    return Object.entries(answers).filter(([k]) => !ids.has(k));
+  }, [answers, questions]);
+
+  const alertByQuestionId = useMemo(() => {
+    const list = expiryData?.alerts;
+    if (!Array.isArray(list)) return {};
+    return Object.fromEntries(list.map((a) => [a.question_id, a]));
+  }, [expiryData]);
+
+  useEffect(() => {
+    const subId = submission?.id;
+    if (!subId || loading || error) {
+      setExpiryData(null);
+      setExpiryError('');
+      return;
+    }
+    let cancelled = false;
+    setExpiryLoading(true);
+    setExpiryError('');
+    api.get(`/onboarding/pqq/${subId}/expiry-alerts`).then((res) => {
+      if (cancelled) return;
+      setExpiryLoading(false);
+      if (!res.success) {
+        setExpiryData(null);
+        setExpiryError(res.message || 'Could not load expiry evaluation');
+        return;
+      }
+      setExpiryData(res.data || null);
+    });
+    return () => { cancelled = true; };
+  }, [submission?.id, loading, error]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-6 border-b border-gray-100 shrink-0">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">PQQ submission details</h3>
+            {submission && (
+              <p className="text-sm text-gray-500 mt-0.5">
+                {submission.company_name || 'Company'}
+                {submission.status && (
+                  <span className="ml-2">
+                    · <span className="font-medium text-gray-700">{String(submission.status).replace('_', ' ')}</span>
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Close">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+          {loading && <p className="text-sm text-gray-500">Loading answers…</p>}
+          {error && !loading && (
+            <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg">{error}</div>
+          )}
+          {!loading && !error && payload && (
+            <>
+              {expiryLoading && (
+                <p className="text-xs text-gray-500">Loading expiry evaluation…</p>
+              )}
+              {expiryError && !expiryLoading && (
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                  {expiryError}
+                </p>
+              )}
+              {expiryData?.suspend_recommended && (
+                <div className="text-sm text-red-800 bg-red-50 border border-red-100 rounded-lg px-3 py-2 font-medium">
+                  Suspension recommended based on expiry policy (one or more items in the red zone with suspension enabled).
+                </div>
+              )}
+              {template?.name && (
+                <div className="p-3 rounded-lg bg-gray-50 text-sm text-gray-700">
+                  <p><span className="font-medium">Template:</span> {template.name}</p>
+                  {submission?.created_at && (
+                    <p className="mt-1"><span className="font-medium">Submitted:</span> {submission.created_at}</p>
+                  )}
+                </div>
+              )}
+              {!template && (
+                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                  Template metadata is unavailable (it may have been removed). Raw answers are shown below.
+                </p>
+              )}
+              {sections.length > 0 && questions.length > 0 ? (
+                sections.map((section) => (
+                  <div key={section.section_id} className="rounded-xl border border-gray-200 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold text-gray-900">
+                        {section.section_number}. {section.section_title}
+                      </h4>
+                      <span className={section.scoring_type === 'pass_fail' ? 'badge-red' : 'badge-blue'}>
+                        {section.scoring_type === 'pass_fail' ? 'Pass / Fail Gate' : `${section.max_points || 0} pts`}
+                      </span>
+                    </div>
+                    {questions
+                      .filter((q) => q.section_id === section.section_id)
+                      .map((q) => (
+                        <div key={q.question_id} className="space-y-1.5 border-t border-gray-100 pt-3 first:border-t-0 first:pt-0">
+                          <p className="text-sm font-medium text-gray-700">
+                            {q.question_number ? `${q.question_number} ` : ''}
+                            {q.question_text}
+                            {Number(q.required) === 1 && <span className="text-red-500 ml-1">*</span>}
+                          </p>
+                          <div className="text-sm text-gray-800 pl-0">
+                            {renderPqqAnswerReadOnly(q, answers[q.question_id])}
+                          </div>
+                          <PqqExpiryAlertInline alert={alertByQuestionId[q.question_id]} />
+                        </div>
+                      ))}
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-gray-200 p-4">
+                  <h4 className="font-semibold text-gray-900 mb-2">Answers</h4>
+                  {Object.keys(answers).length === 0 ? (
+                    <p className="text-sm text-gray-500">No structured answers stored for this submission.</p>
+                  ) : (
+                    <ul className="space-y-4">
+                      {Object.entries(answers).map(([key, val]) => (
+                        <li key={key} className="border-t border-gray-100 pt-3 first:border-t-0 first:pt-0">
+                          <span className="font-mono text-xs text-gray-600">{key}</span>
+                          <div className="mt-1 text-sm">
+                            {typeof val === 'object' ? (
+                              <pre className="text-xs bg-gray-50 p-2 rounded-lg overflow-x-auto border border-gray-100">{JSON.stringify(val, null, 2)}</pre>
+                            ) : (
+                              <span>{String(val)}</span>
+                            )}
+                          </div>
+                          <PqqExpiryAlertInline alert={alertByQuestionId[key]} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {orphanAnswers.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                  <h4 className="font-semibold text-amber-900 text-sm mb-2">Additional answers (not mapped to current template)</h4>
+                  <ul className="text-sm space-y-3">
+                    {orphanAnswers.map(([key, val]) => (
+                      <li key={key}>
+                        <span className="font-mono text-xs text-gray-600">{key}</span>
+                        <div className="mt-0.5 pl-0">
+                          {typeof val === 'object' ? (
+                            <pre className="text-xs bg-white p-2 rounded border overflow-x-auto">{JSON.stringify(val, null, 2)}</pre>
+                          ) : (
+                            <span>{String(val)}</span>
+                          )}
+                        </div>
+                        <PqqExpiryAlertInline alert={alertByQuestionId[key]} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="p-4 border-t border-gray-100 shrink-0">
+          <button type="button" onClick={onClose} className="btn-secondary w-full">
+            Close
+          </button>
+        </div>
       </div>
     </div>,
     document.body
